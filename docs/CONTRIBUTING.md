@@ -69,7 +69,6 @@ root
       |_ddms
       |_logs
       |_other
-      |_templates
       |_README.md  (this is the main TRR markdown)
 ```
 
