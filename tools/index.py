@@ -317,19 +317,20 @@ def update_index(trr_dict, index):
     trr_dict = strip_internal(trr_dict)
 
     found_id = False
-    for trr in index:
+    for position, trr in enumerate(index):
         if trr['id'] == trr_dict['id'] and trr['platforms'][0] == trr_dict['platforms'][0]:  #found the right one
             found_id = True
-            trr['title'] = trr_dict['title']
-            trr['contributors'] = trr_dict['contributors']
-            trr['external_ids'] = trr_dict['external_ids']
-            trr['platforms'] = trr_dict['platforms']
-            trr['procedures'] = trr_dict['procedures']
-            trr['tactics'] = trr_dict['tactics']
-            if 'last_update' in trr_dict:
-                trr['last_update'] = trr_dict['last_update']
-            if 'tests' in trr_dict:
-                trr['tests'] = trr_dict['tests']
+            # Rebuild the entry from the report, carrying across only the
+            # dates the index itself owns. Updating the old entry in place
+            # would keep any field the report no longer produces -- a stale
+            # 'name' beside the new 'title' after the schema-2 migration, or
+            # 'tests' after a report drops its emulation tests.
+            entry = dict(trr_dict)
+            if 'pub_date' in trr:
+                entry['pub_date'] = trr['pub_date']
+            if 'last_update' not in trr_dict and 'last_update' in trr:
+                entry['last_update'] = trr['last_update']
+            index[position] = entry
 
     if not found_id:  #ID isn't in index already, add it
         #add a publication date
@@ -753,6 +754,8 @@ if __name__ == "__main__":
     # Index / merge modes
     ##########################################################################
     #parse each file, updating the index if appropriate
+    produced = set()   # (id, primary platform) of every report parsed this run
+
     for file in files:
         print(f"Parsing file: {file}")
 
@@ -774,6 +777,21 @@ if __name__ == "__main__":
             trr_dict['last_update'] = today_string
 
         update_index(trr_dict, index)
+        produced.add((trr_dict['id'], trr_dict['platforms'][0]))
+
+    # A full reindex parses every report, so any entry it did not produce has
+    # no report behind it -- typically because a report moved to a different
+    # primary platform, which makes it a new entry and leaves the old one
+    # behind. Merge mode sees only the changed files and cannot tell, so this
+    # runs for a full reindex only.
+    if args.mode == "index":
+        ghosts = [e for e in index
+                  if (e['id'], e['platforms'][0]) not in produced]
+        for ghost in ghosts:
+            print(f"Removing {ghost['id']} ({ghost['platforms'][0]}) from the "
+                  f"index: no report exists for it.")
+        index = [e for e in index
+                 if (e['id'], e['platforms'][0]) in produced]
 
     with open(INDEX_FILE, "w") as f:
         f.write(json.dumps(build_index_document(index, config), indent=2))
